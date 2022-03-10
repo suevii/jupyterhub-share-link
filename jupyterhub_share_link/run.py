@@ -26,8 +26,10 @@ from ._version import get_versions
 HubAuthenticated.hub_auth
 
 private_key_path = os.getenv('JUPYTERHUB_SHARE_LINK_PRIVATE_KEY', "private.pem")
+# private_key_path = os.path.join('.', 'private.pem')
 private_key = pathlib.Path(private_key_path).read_text()
 public_key_path = os.getenv('JUPYTERHUB_SHARE_LINK_PUBLIC_KEY', "public.pem")
+# public_key_path = os.path.join('.', 'private.pem')
 public_key = pathlib.Path(public_key_path).read_text()
 
 
@@ -41,7 +43,7 @@ class CreateSharedLink(HubAuthenticated, RequestHandler):
             expiration_time = datetime.fromtimestamp(data['expiration_time'])
         else:
             # Default to one hour lifetime.
-            expiration_time = now + timedelta(hours=1)
+            expiration_time = now + timedelta(minutes=3)
         # Enforce a max of two days.
         # This is not for long-term sharing, galleries, etc.
         max_time = now + timedelta(days=2)
@@ -79,8 +81,9 @@ class CreateSharedLink(HubAuthenticated, RequestHandler):
             'opts': source_server['user_options'],
             'exp': expiration_time
         }
+        print("payload:", payload)
         token = jwt.encode(payload, private_key, algorithm="RS256")
-        base64_token = base64.urlsafe_b64encode(token)
+        base64_token = base64.urlsafe_b64encode(bytes(token, encoding="utf8"))
         base_url = f'{self.request.protocol}://{self.request.host}'
         link = url_path_join(base_url,
                              os.getenv('JUPYTERHUB_SERVICE_PREFIX'),
@@ -93,6 +96,7 @@ class OpenSharedLink(HubAuthenticated, RequestHandler):
     @authenticated
     async def get(self):
         unverified_base64_token = self.get_argument('token')
+        print("unverified_base64_token: ", unverified_base64_token)
         unverified_token = base64.urlsafe_b64decode(unverified_base64_token)
         try:
             token = jwt.decode(unverified_token, public_key, algorithms='RS256')
@@ -245,12 +249,15 @@ def main():
             (os.environ['JUPYTERHUB_SERVICE_PREFIX'] + r'open/?', OpenSharedLink),
             (os.environ['JUPYTERHUB_SERVICE_PREFIX'] + r'inspect/?', InspectSharedLink),
             (os.environ['JUPYTERHUB_SERVICE_PREFIX'] + r'/?', Info),
-        ]
+        ],
+        settings={
+            "debug": True
+        }
     )
 
     http_server = HTTPServer(app)
     url = urlparse(os.environ['JUPYTERHUB_SERVICE_URL'])
-
+    print("url:", url)
     http_server.listen(url.port, url.hostname)
     tornado.options.parse_command_line(sys.argv)
 
